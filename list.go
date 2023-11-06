@@ -97,7 +97,7 @@ func (r *List[T]) GetTail() (val T, ok bool) {
 }
 
 func (r *List[T]) RotateHeadToTail() {
-	if 2 > r.Count() {
+	if 2 > r.count {
 		return
 	}
 	head := r.head
@@ -110,7 +110,7 @@ func (r *List[T]) RotateHeadToTail() {
 }
 
 func (r *List[T]) RotateTailToHead() {
-	if 2 > r.Count() {
+	if 2 > r.count {
 		return
 	}
 	tail := r.tail
@@ -135,4 +135,54 @@ func (r *List[T]) del(node *ListNode[T]) {
 		r.tail = node.prev
 	}
 	r.count--
+}
+
+func (r *List[T]) FromHeadFindNode(op func(T) bool) (node *ListNode[T]) {
+	for node = r.head; node != nil; node = node.next {
+		if op(node.data) {
+			return node
+		}
+	}
+	return
+}
+
+func (r *List[T]) FromTailFindNode(op func(T) bool) (node *ListNode[T]) {
+	for node = r.tail; node != nil; node = node.prev {
+		if op(node.data) {
+			return node
+		}
+	}
+	return
+}
+
+func (r *List[T]) InsertPrev(val T, oldNode *ListNode[T]) {
+	r.insert(val, oldNode, false)
+}
+
+func (r *List[T]) InsertNext(val T, oldNode *ListNode[T]) {
+	r.insert(val, oldNode, true)
+}
+
+func (r *List[T]) insert(val T, oldNode *ListNode[T], after bool) {
+	node := &ListNode[T]{data: val}
+	if after {
+		node.prev = oldNode
+		node.next = oldNode.next
+		if r.tail == oldNode {
+			r.tail = node
+		}
+	} else {
+		node.next = oldNode
+		node.prev = oldNode.prev
+		if r.head == oldNode {
+			r.head = node
+		}
+	}
+	if node.prev != nil {
+		node.prev.next = node
+	}
+	if node.next != nil {
+		node.next.prev = node
+	}
+	r.count++
 }
