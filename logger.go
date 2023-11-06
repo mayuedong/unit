@@ -85,6 +85,11 @@ var g_loggge = &Logger{
 	WorkerPool: NewWorkerPool(-1, 1),
 }
 
+func NewLog(file string, rotateInterval, maxAge time.Duration) (err error) {
+	g_loggge, err = NewSyncLog(file, rotateInterval, maxAge)
+	return err
+}
+
 func NewSyncLog(file string, rotateInterval, maxAge time.Duration) (*Logger, error) {
 	r := &Logger{
 		filePrefix:     file,
