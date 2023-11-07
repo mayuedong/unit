@@ -80,10 +80,7 @@ func (r *Logger) Close() {
 	}
 }
 
-var g_loggge = &Logger{
-	out:        os.Stdout,
-	WorkerPool: NewWorkerPool(-1, 1),
-}
+var g_loggge *Logger
 
 func NewLog(file string, rotateInterval, maxAge time.Duration) (err error) {
 	g_loggge, err = NewSyncLog(file, rotateInterval, maxAge)
