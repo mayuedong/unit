@@ -48,6 +48,9 @@ func (r *SyncQueue[T]) Push(val T) {
 
 	if r.running {
 		notify := false
+		if r.queue.Empty() {
+			notify = true
+		}
 		r.queue.Push(val)
 		if notify {
 			r.empty.Signal()
