@@ -47,12 +47,8 @@ func (r *SyncQueue[T]) Push(val T) {
 	}
 
 	if r.running {
-		notify := false
-		if r.queue.Empty() {
-			notify = true
-		}
 		r.queue.Push(val)
-		if notify {
+		if r.queue.Count() < 2 {
 			r.empty.Signal()
 		}
 	}
@@ -65,12 +61,8 @@ func (r *SyncQueue[T]) Pop() (val T, ok bool) {
 		r.empty.Wait()
 	}
 
-	notify := false
-	if r.queue.Full() {
-		notify = true
-	}
 	val, ok = r.queue.PopHead()
-	if notify {
+	if r.max > 0 && r.queue.Count()+1 >= r.max {
 		r.full.Signal()
 	}
 	return
