@@ -28,8 +28,14 @@ func (r *SyncQueue[T]) Add(val T) {
 	}
 
 	if r.running {
+		notify := false
+		if r.queue.Empty() {
+			notify = true
+		}
 		r.queue.Add(val)
-		r.empty.Signal()
+		if notify {
+			r.empty.Signal()
+		}
 	}
 }
 
@@ -41,8 +47,11 @@ func (r *SyncQueue[T]) Push(val T) {
 	}
 
 	if r.running {
+		notify := false
 		r.queue.Push(val)
-		r.empty.Signal()
+		if notify {
+			r.empty.Signal()
+		}
 	}
 }
 
@@ -53,8 +62,12 @@ func (r *SyncQueue[T]) Pop() (val T, ok bool) {
 		r.empty.Wait()
 	}
 
+	notify := false
+	if r.queue.Full() {
+		notify = true
+	}
 	val, ok = r.queue.PopHead()
-	if r.max > 0 {
+	if notify {
 		r.full.Signal()
 	}
 	return
