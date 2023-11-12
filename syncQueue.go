@@ -28,12 +28,8 @@ func (r *SyncQueue[T]) Add(val T) {
 	}
 
 	if r.running {
-		notify := false
-		if r.queue.Empty() {
-			notify = true
-		}
 		r.queue.Add(val)
-		if notify {
+		if r.queue.Count() < 2 {
 			r.empty.Signal()
 		}
 	}
