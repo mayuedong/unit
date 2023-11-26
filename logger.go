@@ -5,6 +5,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -17,42 +19,39 @@ const (
 	_INFO_  = "[INFO]"
 	_WARN_  = "[WARN]"
 	_ERROR_ = "[ERROR]"
-	_COST_  = "[COST]"
+	_SEP_   = "."
 )
 
 func (r *Logger) Trace(v ...any) {
-	r.Push(&logNode{logger: r, data: v, prefix: _TRACE_, pushTime: time.Now()})
+	r.cache <- &logNode{logger: r, data: v, prefix: _TRACE_, pushTime: time.Now()}
 }
 func (r *Logger) Debug(v ...any) {
-	r.Push(&logNode{logger: r, data: v, prefix: _DEBUG_, pushTime: time.Now()})
+	r.cache <- &logNode{logger: r, data: v, prefix: _DEBUG_, pushTime: time.Now()}
 }
 func (r *Logger) Info(v ...any) {
-	r.Push(&logNode{logger: r, data: v, prefix: _INFO_, pushTime: time.Now()})
+	r.cache <- &logNode{logger: r, data: v, prefix: _INFO_, pushTime: time.Now()}
 }
 func (r *Logger) Warn(v ...any) {
-	r.Push(&logNode{logger: r, data: v, prefix: _WARN_, pushTime: time.Now()})
+	r.cache <- &logNode{logger: r, data: v, prefix: _WARN_, pushTime: time.Now()}
 }
 func (r *Logger) Error(v ...any) {
-	r.Push(&logNode{logger: r, data: v, prefix: _ERROR_, pushTime: time.Now()})
+	r.cache <- &logNode{logger: r, data: v, prefix: _ERROR_, pushTime: time.Now()}
 }
 
-func Cost(v ...any) {
-	g_loggge.Push(&logNode{logger: g_loggge, data: v, prefix: _COST_, pushTime: time.Now()})
-}
 func Trace(v ...any) {
-	g_loggge.Push(&logNode{logger: g_loggge, data: v, prefix: _TRACE_, pushTime: time.Now()})
+	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _TRACE_, pushTime: time.Now()}
 }
 func Debug(v ...any) {
-	g_loggge.Push(&logNode{logger: g_loggge, data: v, prefix: _DEBUG_, pushTime: time.Now()})
+	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _DEBUG_, pushTime: time.Now()}
 }
 func Info(v ...any) {
-	g_loggge.Push(&logNode{logger: g_loggge, data: v, prefix: _INFO_, pushTime: time.Now()})
+	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _INFO_, pushTime: time.Now()}
 }
 func Warn(v ...any) {
-	g_loggge.Push(&logNode{logger: g_loggge, data: v, prefix: _WARN_, pushTime: time.Now()})
+	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _WARN_, pushTime: time.Now()}
 }
 func Error(v ...any) {
-	g_loggge.Push(&logNode{logger: g_loggge, data: v, prefix: _ERROR_, pushTime: time.Now()})
+	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _ERROR_, pushTime: time.Now()}
 }
 
 type fileEntry struct {
@@ -60,21 +59,22 @@ type fileEntry struct {
 	path       string
 }
 type Logger struct {
-	out *os.File
-	*WorkerPool
+	out            *os.File
+	cache          chan *logNode
+	stop           chan bool
 	maxAge         time.Duration
 	rotateInterval time.Duration
 	buf            []byte
 	filePrefix     string
-	rotateAt       time.Time
-	createdFile    List[*fileEntry]
+	createdFile    []*fileEntry
 }
 
-func Close() {
-	g_loggge.WorkerPool.Close()
+func CloseLog() {
+	g_loggge.Close()
 }
 func (r *Logger) Close() {
-	r.WorkerPool.Close()
+	close(r.cache)
+	<-r.stop
 	if nil != r.out {
 		r.out.Close()
 	}
@@ -82,91 +82,74 @@ func (r *Logger) Close() {
 
 var g_loggge *Logger
 
-func NewLog(file string, rotateInterval, maxAge time.Duration) (err error) {
-	g_loggge, err = NewSyncLog(file, rotateInterval, maxAge)
+func NewLog(dir string, rotateInterval, maxAge time.Duration) (err error) {
+	g_loggge, err = NewSyncLog(dir, rotateInterval, maxAge)
 	return err
 }
 
-func NewSyncLog(file string, rotateInterval, maxAge time.Duration) (*Logger, error) {
+func NewSyncLog(dir string, rotateInterval, maxAge time.Duration) (*Logger, error) {
 	r := &Logger{
-		filePrefix:     file,
+		filePrefix:     path.Join(dir, "log"),
 		maxAge:         maxAge,
 		rotateInterval: rotateInterval,
-		WorkerPool:     NewWorkerPool(-1, 1),
+		cache:          make(chan *logNode, 1024),
+		stop:           make(chan bool),
 	}
-	r.createdFile.Init(-1)
 
-	if time.Hour > r.rotateInterval {
-		r.rotateInterval = time.Hour
+	if time.Second > r.rotateInterval {
+		r.rotateInterval = time.Second
 	}
 	if r.rotateInterval >= r.maxAge {
-		r.maxAge = r.rotateInterval + time.Hour
+		r.maxAge = r.rotateInterval + 3*time.Second
 	}
 
 	//将文件夹中的文件按时间排序
-	if matches, err := filepath.Glob(r.filePrefix + ".*"); nil == err {
+	if matches, err := filepath.Glob(r.filePrefix + _SEP_ + "*"); nil == err {
 		for _, match := range matches {
 			info, err := os.Stat(match)
-			if nil != err || nil == info {
-				continue
-			}
-			entry := &fileEntry{
-				createTime: info.ModTime(),
-				path:       match,
-			}
-
-			if oldNode := r.createdFile.FromHeadFindNode(func(cacheFile *fileEntry) bool {
-				return info.ModTime().Before(cacheFile.createTime)
-			}); oldNode != nil {
-				r.createdFile.InsertPrev(entry, oldNode)
-			} else {
-				r.createdFile.Push(entry)
+			if nil == err && nil != info {
+				r.createdFile = append(r.createdFile, &fileEntry{createTime: info.ModTime(), path: match})
 			}
 		}
+		sort.Slice(r.createdFile, func(i, j int) bool { return r.createdFile[i].createTime.Before(r.createdFile[j].createTime) })
 	}
-	return r, r.rotateFile(time.Now())
+	if err := r.rotateFile(); nil != err {
+		return nil, err
+	}
+	go r.output()
+	return r, nil
 }
 
-func (r *Logger) rotateFile(now time.Time) error {
-	file := r.filePrefix + "." + now.Format(time.RFC3339)[:len("2006-01-02T15")]
-	fileExist := true
-	for i := 0; i < 1; i++ {
-		if info, err := os.Stat(file); nil == info || os.IsNotExist(err) {
-			fileExist = false
-		} else {
-			break
-		}
-
+func (r *Logger) rotateFile() error {
+	now := time.Now()
+	file := r.filePrefix + _SEP_ + strings.ReplaceAll(now.Format(time.RFC3339)[:len(time.DateTime)], ":", "-")
+	if info, err := os.Stat(file); nil == info || os.IsNotExist(err) {
 		dir := path.Dir(file)
-		if info, err := os.Stat(dir); nil == info || os.IsNotExist(err) {
+		if info, err = os.Stat(dir); nil == info || os.IsNotExist(err) {
 			if err = os.MkdirAll(dir, 0755); nil != err {
 				return err
 			}
 		}
+		r.createdFile = append(r.createdFile, &fileEntry{createTime: now, path: file})
 	}
+
 	fp, err := os.OpenFile(file, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if nil != err {
 		return err
 	}
-	if !fileExist {
-		r.createdFile.Push(&fileEntry{
-			createTime: now,
-			path:       file,
-		})
-	}
-
 	os.Remove(r.filePrefix)
 	os.Link(file, r.filePrefix)
 	if nil != r.out {
 		r.out.Close()
 	}
 	r.out = fp
-	r.rotateAt = now
 
-	for entry, ok := r.createdFile.GetHead(); ok && entry.createTime.Add(r.maxAge).Before(now); entry, ok = r.createdFile.GetHead() {
-		r.createdFile.PopHead()
-		if err = os.Remove(entry.path); nil != err {
-			return err
+	for i := 0; i < len(r.createdFile); i++ {
+		if r.createdFile[i].createTime.Add(r.maxAge).After(now) {
+			break
+		}
+		if nil == os.Remove(r.createdFile[i].path) {
+			r.createdFile = r.createdFile[1:]
 		}
 	}
 	return err
@@ -179,20 +162,19 @@ type logNode struct {
 	pushTime time.Time
 }
 
-func (r *logNode) Callback() {
-	output(r.logger, r)
-	if len(r.logger.filePrefix) == 0 {
-		return
-	}
-	if r.pushTime.Sub(r.logger.rotateAt) >= r.logger.rotateInterval {
-		now := time.Now()
-		if err := r.logger.rotateFile(now); nil != err {
-			output(r.logger, &logNode{
-				logger:   r.logger,
-				data:     []any{err},
-				prefix:   "[ERROR]",
-				pushTime: now,
-			})
+func (r *Logger) output() {
+	t := time.Tick(r.rotateInterval)
+	for {
+		select {
+		case <-t:
+			r.rotateFile()
+		case node, ok := <-r.cache:
+			if !ok {
+				r.stop <- true
+				close(r.stop)
+				return
+			}
+			output(node.logger, node)
 		}
 	}
 }
@@ -207,18 +189,17 @@ func itoa(buf *[]byte, i int, wid int) {
 		bp--
 		i = q
 	}
-	// i < 10
 	b[bp] = byte('0' + i)
 	*buf = append(*buf, b[bp:]...)
 }
 
 func (l *Logger) formatHeader(buf *[]byte, t time.Time, prefix string) {
-	hour, min, sec := t.Clock()
-	itoa(buf, hour, 2)
+	h, m, s := t.Clock()
+	itoa(buf, h, 2)
 	*buf = append(*buf, ':')
-	itoa(buf, min, 2)
+	itoa(buf, m, 2)
 	*buf = append(*buf, ':')
-	itoa(buf, sec, 2)
+	itoa(buf, s, 2)
 	*buf = append(*buf, '.')
 	itoa(buf, t.Nanosecond()/1e3, 6)
 	*buf = append(*buf, ' ')
