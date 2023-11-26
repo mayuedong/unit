@@ -22,52 +22,43 @@ const (
 	_SEP_   = "."
 )
 
-func (r *Logger) Trace(v ...any) {
-	r.cache <- &logNode{logger: r, data: v, prefix: _TRACE_, pushTime: time.Now()}
-}
-func (r *Logger) Debug(v ...any) {
-	r.cache <- &logNode{logger: r, data: v, prefix: _DEBUG_, pushTime: time.Now()}
-}
-func (r *Logger) Info(v ...any) {
-	r.cache <- &logNode{logger: r, data: v, prefix: _INFO_, pushTime: time.Now()}
-}
-func (r *Logger) Warn(v ...any) {
-	r.cache <- &logNode{logger: r, data: v, prefix: _WARN_, pushTime: time.Now()}
-}
-func (r *Logger) Error(v ...any) {
-	r.cache <- &logNode{logger: r, data: v, prefix: _ERROR_, pushTime: time.Now()}
+func (r *Logger) Trace(v ...any) { r.cache <- &logNode{data: v, prefix: _TRACE_, pushTime: time.Now()} }
+func (r *Logger) Debug(v ...any) { r.cache <- &logNode{data: v, prefix: _DEBUG_, pushTime: time.Now()} }
+func (r *Logger) Info(v ...any)  { r.cache <- &logNode{data: v, prefix: _INFO_, pushTime: time.Now()} }
+func (r *Logger) Warn(v ...any)  { r.cache <- &logNode{data: v, prefix: _WARN_, pushTime: time.Now()} }
+func (r *Logger) Error(v ...any) { r.cache <- &logNode{data: v, prefix: _ERROR_, pushTime: time.Now()} }
+func (r *Logger) Print(prefix string, v ...any) {
+	r.cache <- &logNode{data: v, prefix: prefix, pushTime: time.Now()}
 }
 
-func Trace(v ...any) {
-	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _TRACE_, pushTime: time.Now()}
-}
-func Debug(v ...any) {
-	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _DEBUG_, pushTime: time.Now()}
-}
-func Info(v ...any) {
-	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _INFO_, pushTime: time.Now()}
-}
-func Warn(v ...any) {
-	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _WARN_, pushTime: time.Now()}
-}
-func Error(v ...any) {
-	g_loggge.cache <- &logNode{logger: g_loggge, data: v, prefix: _ERROR_, pushTime: time.Now()}
-}
+func Trace(v ...any)                { g_loggge.Trace(v...) }
+func Debug(v ...any)                { g_loggge.Debug(v...) }
+func Info(v ...any)                 { g_loggge.Info(v...) }
+func Warn(v ...any)                 { g_loggge.Warn(v...) }
+func Error(v ...any)                { g_loggge.Error(v...) }
+func Print(prefix string, v ...any) { g_loggge.Print(prefix, v...) }
 
-type fileEntry struct {
-	createTime time.Time
-	path       string
-}
-type Logger struct {
-	out            *os.File
-	cache          chan *logNode
-	stop           chan bool
-	maxAge         time.Duration
-	rotateInterval time.Duration
-	buf            []byte
-	filePrefix     string
-	createdFile    []*fileEntry
-}
+type (
+	fileEntry struct {
+		createTime time.Time
+		path       string
+	}
+	logNode struct {
+		data     []any
+		prefix   string
+		pushTime time.Time
+	}
+	Logger struct {
+		out            *os.File
+		cache          chan *logNode
+		stop           chan bool
+		maxAge         time.Duration
+		rotateInterval time.Duration
+		buf            []byte
+		filePrefix     string
+		createdFile    []*fileEntry
+	}
+)
 
 func CloseLog() {
 	g_loggge.Close()
@@ -92,7 +83,7 @@ func NewSyncLog(dir string, rotateInterval, maxAge time.Duration) (*Logger, erro
 		filePrefix:     path.Join(dir, "log"),
 		maxAge:         maxAge,
 		rotateInterval: rotateInterval,
-		cache:          make(chan *logNode, 1024),
+		cache:          make(chan *logNode, 8192),
 		stop:           make(chan bool),
 	}
 
@@ -155,13 +146,6 @@ func (r *Logger) rotateFile() error {
 	return err
 }
 
-type logNode struct {
-	logger   *Logger
-	data     []any
-	prefix   string
-	pushTime time.Time
-}
-
 func (r *Logger) output() {
 	t := time.Tick(r.rotateInterval)
 	for {
@@ -174,7 +158,7 @@ func (r *Logger) output() {
 				close(r.stop)
 				return
 			}
-			output(node.logger, node)
+			output(r, node)
 		}
 	}
 }
