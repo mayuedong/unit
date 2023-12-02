@@ -5,7 +5,7 @@ import "sync"
 type SyncQueue[T comparable] struct {
 	running bool
 	max     int
-	queue   List[T]
+	queue   *List[T]
 	mutex   sync.Mutex
 	empty   *sync.Cond
 	full    *sync.Cond
@@ -15,8 +15,7 @@ func (r *SyncQueue[T]) Init(max int) {
 	r.max = max
 	r.empty = sync.NewCond(&r.mutex)
 	r.full = sync.NewCond(&r.mutex)
-	r.queue = List[T]{}
-	r.queue.Init(max)
+	r.queue = &List[T]{max: max}
 	r.running = true
 }
 
@@ -29,12 +28,26 @@ func (r *SyncQueue[T]) Add(val T) {
 
 	if r.running {
 		r.queue.Add(val)
-		if r.queue.Count() < 2 {
-			r.empty.Signal()
-		}
+		r.empty.Signal()
 	}
 }
+func (r *SyncQueue[T]) AddMore(vals []T) {
+	l := &List[T]{}
+	for _, val := range vals {
+		l.Push(val)
+	}
 
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	for r.queue.Full() && r.running {
+		r.full.Wait()
+	}
+
+	if r.running {
+		r.queue = r.queue.AddList(l)
+		r.empty.Signal()
+	}
+}
 func (r *SyncQueue[T]) Push(val T) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -44,9 +57,24 @@ func (r *SyncQueue[T]) Push(val T) {
 
 	if r.running {
 		r.queue.Push(val)
-		if r.queue.Count() < 2 {
-			r.empty.Signal()
-		}
+		r.empty.Signal()
+	}
+}
+func (r *SyncQueue[T]) PushMore(vals []T) {
+	l := &List[T]{}
+	for _, val := range vals {
+		l.Push(val)
+	}
+
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	for r.queue.Full() && r.running {
+		r.full.Wait()
+	}
+
+	if r.running {
+		r.queue = r.queue.PushList(l)
+		r.empty.Signal()
 	}
 }
 
@@ -58,7 +86,7 @@ func (r *SyncQueue[T]) Pop() (val T, ok bool) {
 	}
 
 	val, ok = r.queue.PopHead()
-	if r.max > 0 && r.queue.Count()+1 >= r.max {
+	if r.max > 0 {
 		r.full.Signal()
 	}
 	return

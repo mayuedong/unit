@@ -17,10 +17,6 @@ type List[T comparable] struct {
 	max   int
 }
 
-func (r *List[T]) Init(max int) {
-	r.max = max
-}
-
 func (r *List[T]) Count() int {
 	return r.count
 }
@@ -185,4 +181,35 @@ func (r *List[T]) insert(val T, oldNode *ListNode[T], after bool) {
 		node.next.prev = node
 	}
 	r.count++
+}
+func (r *List[T]) PushList(o *List[T]) *List[T] {
+	r.insertList(o)
+	return r
+}
+func (r *List[T]) AddList(o *List[T]) *List[T] {
+	if nil == o || o.Count() <= 0 {
+		return r
+	}
+	o.max = r.max
+	o.insertList(r)
+	return o
+}
+func (r *List[T]) insertList(o *List[T]) {
+	if o.Count() <= 0 {
+		return
+	}
+
+	o.head.prev = r.tail
+
+	if nil != r.tail {
+		r.tail.next = o.head
+	} else {
+		r.head = o.head
+	}
+	r.tail = o.tail
+	r.count += o.Count()
+
+	o.head = nil
+	o.tail = nil
+	o.count = 0
 }
